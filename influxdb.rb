@@ -33,6 +33,8 @@ module Sensu::Extension
       host = event['client']['name']
       event['check']['influxdb']['database'] ||= conf['database']
       protocol = conf.fetch('ssl_enable', false) ? 'https' : 'http'
+      split_tag = event['check']['influxdb']['split_tag'] || nil
+      split_tag ||= conf.fetch 'split_tag', nil
 
       event['check']['output'].split(/\n/).each do |line|
         key, value, time = line.split(/\s+/)
@@ -48,6 +50,12 @@ module Sensu::Extension
           key.gsub!(/^.*#{conf['strip_metric']}\.(.*$)/, '\1')
         end
 
+	event_tags = []
+        if split_tag
+          sliced = slice_tags key, split_tag
+          key, event_tags = sliced[0], sliced[1..-1]
+        end
+
         # Avoid things break down due to comma in key name
         # TODO : create a key_clean def to refactor this
         key.gsub!(',', '\,')
@@ -56,6 +64,10 @@ module Sensu::Extension
         tags = conf.fetch(:tags, {}).merge(event['check']['influxdb']['tags']).merge({'host' => host})
         tags.each do |tag, val|
           key += ",#{tag}=#{val}"
+        end
+        
+        event_tags.each do |tag|
+          key += ",#{tag}"
         end
 
         body += [[key, values, time.to_i].join(' ')]
@@ -81,6 +93,7 @@ module Sensu::Extension
         event['check']['influxdb'] ||= {}
         event['check']['influxdb']['tags'] ||= {}
         event['check']['influxdb']['database'] ||= nil
+        event['check']['influxdb']['split_tag'] ||=nil
 
       rescue => e
         puts "Failed to parse event data: #{e}"
@@ -99,7 +112,8 @@ module Sensu::Extension
           'ssl_enable' => @settings['influxdb']['ssl_enable'],
           'strip_metric' => @settings['influxdb']['strip_metric'],
           'timeout' => @settings['influxdb']['timeout'],
-          'user' => @settings['influxdb']['user']
+          'user' => @settings['influxdb']['user'],
+          'split_tag' => @settings['influxdb']['split_tag']
         }
       rescue => e
         puts "Failed to parse InfluxDB settings #{e}"
@@ -118,6 +132,10 @@ module Sensu::Extension
         slice.slice!('.')
       end
       return slice
+    end
+   
+    def slice_tags(slice, split_tag)
+      splitted = slice.split(split_tag)
     end
   end
 end
